@@ -3,11 +3,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:math';
+import 'package:flutter/foundation.dart' show Uint8List, kIsWeb;
 import 'package:lovelense_booth/screens/share_screen.dart';
 import 'package:lovelense_booth/widgets/camera_preview.dart';
 import 'package:lovelense_booth/widgets/frame_selector.dart';
 import 'package:lovelense_booth/widgets/countdown_timer.dart';
 import 'package:lovelense_booth/services/camera_service.dart';
+import 'package:lovelense_booth/widgets/frame_util.dart';
+import 'package:path_provider/path_provider.dart';
 
 class CameraScreen extends ConsumerStatefulWidget {
   final int initialFrameCount;
@@ -19,10 +22,11 @@ class CameraScreen extends ConsumerStatefulWidget {
 }
 
 class _CameraScreenState extends ConsumerState<CameraScreen> {
+  final GlobalKey frameKey = GlobalKey();
   late int selectedFrameCount;
   bool isCapturing = false;
   int currentCaptureIndex = 0;
-  List<String> capturedPhotos = [];
+  List<String> capturedPhotoPaths = []; // Store paths or URLs
   List<int> samplePhotoIndices = []; // Store randomly selected photo indices
 
   @override
@@ -104,28 +108,39 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       return;
     }
 
+    // Clear any previously captured photos
+    ref.read(cameraServiceProvider).clearCapturedPhotos();
+
     setState(() {
       isCapturing = true;
       currentCaptureIndex = 0;
-      capturedPhotos = [];
+      capturedPhotoPaths = [];
     });
 
     _captureNextPhoto();
   }
 
-  void _captureNextPhoto() {
+  Future<void> _captureNextPhoto() async {
     if (currentCaptureIndex >= selectedFrameCount) {
-      // All photos captured, proceed to share screen
+      // All photos captured, capture the entire frame before proceeding
       setState(() {
         isCapturing = false;
       });
 
+      // Delay to ensure UI is fully rendered
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // Capture the frame
+      final frameBytes = await frameKey.captureAsPngBytes();
+      final frameImagePath = await _saveFrameImage(frameBytes);
+
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => ShareScreen(
-            // Pass the captured photos to the share screen
             imageUrl: '',
-            capturedPhotos: capturedPhotos,
+            capturedPhotos: capturedPhotoPaths,
+            frameImagePath: frameImagePath,
+            frameCount: selectedFrameCount,
           ),
         ),
       );
@@ -140,11 +155,11 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         onFinished: () async {
           try {
             // Capture photo
-            final photoPath =
+            final photoPathOrUrl =
                 await ref.read(cameraServiceProvider).capturePhoto();
 
             setState(() {
-              capturedPhotos.add(photoPath);
+              capturedPhotoPaths.add(photoPathOrUrl);
               currentCaptureIndex++;
             });
 
@@ -189,10 +204,34 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
     );
   }
 
+  Future<String> _saveFrameImage(Uint8List? bytes) async {
+    if (bytes == null) return '';
+
+    if (kIsWeb) {
+      // For web: store the bytes in our provider
+      final path =
+          'memory://frame_${DateTime.now().millisecondsSinceEpoch}.png';
+      ref.read(frameImageBytesProvider.notifier).update((state) => {
+            ...state,
+            path: bytes,
+          });
+      return path;
+    } else {
+      // For mobile: save to file
+      final directory = await getApplicationDocumentsDirectory();
+      final path =
+          '${directory.path}/frame_${DateTime.now().millisecondsSinceEpoch}.png';
+      final file = File(path);
+      await file.writeAsBytes(bytes);
+      return path;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Watch camera state to update UI if needed
     final cameraState = ref.watch(cameraStateProvider);
+    final capturedPhotos = ref.watch(capturedPhotosProvider);
 
     return Scaffold(
       body: Container(
@@ -234,9 +273,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
                             // Frame selector text
                             const Text(
-                              'Select the number of Photos...',
+                              'Select a Frame',
                               style: TextStyle(
-                                fontSize: 14,
+                                fontSize: 18,
                                 color: Colors.white,
                               ),
                             ),
@@ -294,13 +333,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
                       // Right column - Frame preview - FIXED LAYOUT
                       Expanded(
-                        child: Column(
-                          children: [
-                            // Frame preview (shows selected layout)
-                            Expanded(
-                              child: _buildFramePreview(),
-                            ),
-                          ],
+                        child: RepaintBoundary(
+                          key: frameKey,
+                          child: _buildFramePreview(capturedPhotos),
                         ),
                       ),
                     ],
@@ -314,7 +349,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
     );
   }
 
-  Widget _buildFramePreview() {
+  Widget _buildFramePreview(List<CapturedPhoto> allCapturedPhotos) {
     // Fixed dimensions for each frame
     const double frameSize = 250.0; // Individual photo frame size
     const double framePadding = 12.0; // Padding between frames
@@ -323,22 +358,44 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
     // Helper method to create a square frame preview box with sample image
     Widget buildFrameBox(int index) {
       // If we have a captured photo for this index, use it
-      if (capturedPhotos.length > index) {
-        return Container(
-          width: frameSize,
-          height: frameSize,
-          decoration: BoxDecoration(
-            color: Colors.grey.shade300,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Image.file(
-              File(capturedPhotos[index]),
-              fit: BoxFit.cover,
+      if (index < allCapturedPhotos.length) {
+        final capturedPhoto = allCapturedPhotos[index];
+
+        if (kIsWeb && capturedPhoto.webUrl != null) {
+          // For web: Use webUrl to display the image
+          return Container(
+            width: frameSize,
+            height: frameSize,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(4),
             ),
-          ),
-        );
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Image.network(
+                capturedPhoto.webUrl!,
+                fit: BoxFit.cover,
+              ),
+            ),
+          );
+        } else if (!kIsWeb) {
+          // For mobile: Use file path
+          return Container(
+            width: frameSize,
+            height: frameSize,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Image.file(
+                File(capturedPhoto.path),
+                fit: BoxFit.cover,
+              ),
+            ),
+          );
+        }
       }
 
       // Otherwise use a sample photo from our unique selection

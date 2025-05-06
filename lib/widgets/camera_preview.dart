@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:camera/camera.dart';
 import 'package:lovelense_booth/services/camera_service.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 class CameraPreviewWidget extends ConsumerWidget {
@@ -14,10 +13,6 @@ class CameraPreviewWidget extends ConsumerWidget {
     final cameraState = ref.watch(cameraStateProvider);
     final errorMessage = ref.watch(cameraErrorProvider);
 
-    // Log state for debugging
-    print('Camera state: $cameraState');
-    print('Controller initialized: ${cameraController?.value.isInitialized}');
-
     // Build UI based on camera state
     switch (cameraState) {
       case CameraState.uninitialized:
@@ -25,13 +20,11 @@ class CameraPreviewWidget extends ConsumerWidget {
       case CameraState.initializing:
         return _buildLoadingPreview();
       case CameraState.initialized:
-        // Double check that controller exists and is initialized
+        // Check if controller is actually initialized before using it
         if (cameraController != null && cameraController.value.isInitialized) {
           return _buildCameraPreview(context, cameraController);
         } else {
-          // Something is wrong - controller should be initialized if state is initialized
-          print(
-              'Warning: Camera state is initialized but controller is not ready!');
+          // Fall back to loading view if controller isn't ready yet
           return _buildLoadingPreview();
         }
       case CameraState.permissionDenied:
@@ -43,6 +36,11 @@ class CameraPreviewWidget extends ConsumerWidget {
 
   Widget _buildCameraPreview(
       BuildContext context, CameraController controller) {
+    // Guard clause to ensure controller is initialized
+    if (!controller.value.isInitialized) {
+      return _buildLoadingPreview();
+    }
+
     // Get screen size for proper calculations
     final screenSize = MediaQuery.of(context).size;
     final screenRatio = screenSize.width / screenSize.height;
@@ -159,22 +157,22 @@ class CameraPreviewWidget extends ConsumerWidget {
         color: Colors.grey.shade300,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Center(
+      child: const Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
+            Icon(
               Icons.no_photography,
               size: 48,
               color: Colors.red,
             ),
-            const SizedBox(height: 16),
-            const Text(
+            SizedBox(height: 16),
+            Text(
               'Camera permission denied',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 8),
-            const Padding(
+            SizedBox(height: 8),
+            Padding(
               padding: EdgeInsets.symmetric(horizontal: 20.0),
               child: Text(
                 'We need camera access to take photos. Please allow camera access in your browser or device permissions.',
@@ -182,34 +180,7 @@ class CameraPreviewWidget extends ConsumerWidget {
                 style: TextStyle(fontSize: 14),
               ),
             ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () async {
-                if (kIsWeb) {
-                  // For web, just try to initialize camera again, which will trigger permission dialog
-                  ref.read(cameraServiceProvider).initializeCamera();
-                } else {
-                  // For mobile, use permission_handler
-                  final status = await Permission.camera.request();
-                  if (status.isGranted) {
-                    ref.read(cameraServiceProvider).initializeCamera();
-                  } else if (status.isPermanentlyDenied) {
-                    await openAppSettings();
-                  } else {
-                    ref.read(cameraServiceProvider).initializeCamera();
-                  }
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              ),
-              child: const Text(
-                'Request Permission Again',
-                style: TextStyle(color: Colors.white),
-              ),
-            ),
+            SizedBox(height: 16),
           ],
         ),
       ),

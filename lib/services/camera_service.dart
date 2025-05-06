@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:html' as html;
+import 'dart:typed_data';
 
 // Camera initialization state
 enum CameraState {
@@ -37,6 +38,26 @@ final availableCamerasProvider =
     return [];
   }
 });
+
+// Provider to store captured photos
+final capturedPhotosProvider = StateProvider<List<CapturedPhoto>>((ref) {
+  return [];
+});
+
+// Class to store photo data for both web and mobile
+class CapturedPhoto {
+  final String path; // File path for mobile
+  final Uint8List? webBytes; // Bytes for web
+  final String? webUrl; // Object URL for web images
+
+  CapturedPhoto({
+    required this.path,
+    this.webBytes,
+    this.webUrl,
+  });
+
+  bool get isWeb => webBytes != null || webUrl != null;
+}
 
 // Camera service provider
 final cameraServiceProvider = Provider<CameraService>((ref) {
@@ -130,7 +151,37 @@ class CameraService {
 
     try {
       final xFile = await controller.takePicture();
-      return xFile.path;
+
+      if (kIsWeb) {
+        // For Web: Read the bytes and create a URL
+        final bytes = await xFile.readAsBytes();
+
+        // Create a blob URL for the image
+        final blob = html.Blob([bytes]);
+        final url = html.Url.createObjectUrlFromBlob(blob);
+
+        // Store the captured photo in our provider
+        final capturedPhotos = _ref.read(capturedPhotosProvider.notifier);
+        capturedPhotos.state = [
+          ...capturedPhotos.state,
+          CapturedPhoto(
+            path: xFile.path,
+            webBytes: bytes,
+            webUrl: url,
+          ),
+        ];
+
+        return url; // Return the URL for web
+      } else {
+        // For Mobile: Store the file path
+        final capturedPhotos = _ref.read(capturedPhotosProvider.notifier);
+        capturedPhotos.state = [
+          ...capturedPhotos.state,
+          CapturedPhoto(path: xFile.path),
+        ];
+
+        return xFile.path;
+      }
     } catch (e) {
       print('Error capturing photo: $e');
       rethrow;
@@ -142,5 +193,19 @@ class CameraService {
     controller?.dispose();
     _ref.read(cameraControllerProvider.notifier).state = null;
     _ref.read(cameraStateProvider.notifier).state = CameraState.uninitialized;
+  }
+
+  // Helper method to clear captured photos
+  void clearCapturedPhotos() {
+    // Release any web URLs to prevent memory leaks
+    if (kIsWeb) {
+      for (final photo in _ref.read(capturedPhotosProvider)) {
+        if (photo.webUrl != null) {
+          html.Url.revokeObjectUrl(photo.webUrl!);
+        }
+      }
+    }
+
+    _ref.read(capturedPhotosProvider.notifier).state = [];
   }
 }

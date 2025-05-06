@@ -21,6 +21,11 @@ dependencies:
   permission_handler: ^10.0.0
   permission_handler_web: ^0.0.2
   path: ^1.9.1
+  googleapis: ^14.0.0
+  googleapis_auth: ^2.0.0
+  universal_html: ^2.2.4
+  url_launcher: ^6.3.1
+  intl: ^0.20.2
   
 dev_dependencies:
   flutter_test:
