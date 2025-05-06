@@ -16,16 +16,17 @@ class CoupleInfo {
 // Provider for couple info
 final coupleInfoProvider = Provider<CoupleInfo>((ref) {
   // In a real app, this could be loaded from configuration
-  return CoupleInfo(name1: 'Jimxad', name2: 'Jaybei', eventDate: 'May 5, 2025');
+  return CoupleInfo(
+      name1: 'Jimuel', name2: 'Jaybei', eventDate: 'May 30, 2025');
 });
 
 // Photos provider to track captured photos
 final photosProvider = StateProvider<List<String>>((ref) => []);
 
 // Selected frame count provider
-final selectedFrameCountProvider = StateProvider<int>((ref) => 4);
+final selectedFrameCountProvider = StateProvider<int>((ref) => 3);
 
 // Current step in the booth flow
-enum BoothStep { start, camera, edit, share }
+enum BoothStep { start, camera, share }
 
 final currentStepProvider = StateProvider<BoothStep>((ref) => BoothStep.start);

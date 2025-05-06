@@ -13,6 +13,14 @@ dependencies:
   flutter_riverpod: ^2.3.6
   animated_background: ^2.0.0
   flutter_svg: ^2.0.5
+  camera: ^0.10.5+2
+  camera_web: ^0.3.2
+  path_provider: ^2.1.5
+  share_plus: ^11.0.0
+  image_gallery_saver: ^2.0.3
+  permission_handler: ^10.0.0
+  permission_handler_web: ^0.0.2
+  path: ^1.9.1
   
 dev_dependencies:
   flutter_test:
@@ -25,7 +33,12 @@ flutter:
   assets:
     - assets/images/LoveLenseIcon.svg
     - assets/images/LoveLenseIcon.png
-    - assets/images/heart.png
+    - assets/images/sample-1.png
+    - assets/images/sample-2.png
+    - assets/images/sample-3.png
+    - assets/images/sample-4.png
+    - assets/images/sample-5.png
+    - assets/images/sample-6.png
     
   fonts:
     - family: Montserrat

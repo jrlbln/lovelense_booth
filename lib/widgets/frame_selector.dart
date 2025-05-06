@@ -19,7 +19,7 @@ class FrameSelector extends StatelessWidget {
         const SizedBox(width: 16),
         _buildFrameButton(context, 4),
         const SizedBox(width: 16),
-        _buildFrameButton(context, 5),
+        _buildFrameButton(context, 6),
       ],
     );
   }
@@ -28,7 +28,7 @@ class FrameSelector extends StatelessWidget {
     final isSelected = selectedFrameCount == frameCount;
 
     return Material(
-      color: isSelected ? Theme.of(context).colorScheme.primary : Colors.white,
+      color: isSelected ? Colors.blue.shade300 : Colors.white,
       borderRadius: BorderRadius.circular(8),
       elevation: isSelected ? 4 : 2,
       child: InkWell(
@@ -50,7 +50,7 @@ class FrameSelector extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                'Frames',
+                'Photos',
                 style: TextStyle(
                   fontSize: 14,
                   color: isSelected ? Colors.white : Colors.black54,

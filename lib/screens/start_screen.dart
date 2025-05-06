@@ -91,7 +91,7 @@ class _StartScreenState extends State<StartScreen>
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (context) => const CameraScreen(
-                              initialFrameCount: 4,
+                              initialFrameCount: 3,
                             ),
                           ),
                         );

@@ -1,186 +1,227 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:lovelense_booth/screens/start_screen.dart';
-import 'package:lovelense_booth/widgets/email_form.dart';
-import 'package:lovelense_booth/services/email_service.dart';
-import 'package:lovelense_booth/providers/photo_booth_provider.dart';
+import 'package:image_gallery_saver/image_gallery_saver.dart';
+// import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 class ShareScreen extends ConsumerStatefulWidget {
   final String imageUrl;
+  final List<String> capturedPhotos;
 
-  const ShareScreen({super.key, required this.imageUrl});
+  const ShareScreen({
+    Key? key,
+    required this.imageUrl,
+    this.capturedPhotos = const [],
+  }) : super(key: key);
 
   @override
   ConsumerState<ShareScreen> createState() => _ShareScreenState();
 }
 
 class _ShareScreenState extends ConsumerState<ShareScreen> {
-  bool isSending = false;
-  bool isComplete = false;
-  String? errorMessage;
+  bool _saving = false;
+  String? _saveMessage;
 
   @override
   Widget build(BuildContext context) {
-    final couple = ref.watch(coupleInfoProvider);
-
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.primary,
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        title: const Text('Share Your Photos'),
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
       body: Center(
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.8,
-          height: MediaQuery.of(context).size.height * 0.8,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.2),
-                blurRadius: 10,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Header
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Text(
-                  '${couple.name1} & ${couple.name2}',
-                  style: const TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-
-              // Photo Preview
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(8),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Display the combined photo composition
+            Expanded(
+              child: widget.capturedPhotos.isNotEmpty
+                  ? _buildPhotoComposition()
+                  : Image.network(
+                      widget.imageUrl,
+                      fit: BoxFit.contain,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return const Center(child: CircularProgressIndicator());
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Text(
+                            'Error loading image',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        );
+                      },
                     ),
-                    // In a real app, load the image from the URL
-                    child: const Center(
-                      child: Icon(Icons.image, size: 120, color: Colors.grey),
-                    ),
-                  ),
-                ),
-              ),
+            ),
 
-              // Email form or thank you message
-              Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: isComplete ? _buildThankYouMessage() : _buildEmailForm(),
+            // Share buttons
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  // Status message for save actions
+                  if (_saveMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16.0),
+                      child: Text(
+                        _saveMessage!,
+                        style: TextStyle(
+                          color: _saveMessage!.contains('Error')
+                              ? Colors.red
+                              : Colors.green,
+                        ),
+                      ),
+                    ),
+
+                  // Action buttons
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Save to Gallery button
+                      ElevatedButton.icon(
+                        onPressed: _saving ? null : _saveToGallery,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 12,
+                          ),
+                        ),
+                        icon: _saving
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.save_alt),
+                        label: const Text(
+                          'Save to Gallery',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ),
+
+                      // Share button
+                      ElevatedButton.icon(
+                        onPressed: _saving ? null : _sharePhoto,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 12,
+                          ),
+                        ),
+                        icon: const Icon(Icons.share),
+                        label: const Text(
+                          'Share',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildEmailForm() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (errorMessage != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 16.0),
-            child: Text(
-              errorMessage!,
-              style: const TextStyle(
-                color: Colors.red,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        const Text(
-          'Would you like a copy of this photo sent to your email?',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+  Widget _buildPhotoComposition() {
+    // This is a simplified version - you'll need to implement
+    // the actual layout based on the frame count
+    if (widget.capturedPhotos.isEmpty) {
+      return const Center(
+        child: Text(
+          'No photos captured',
+          style: TextStyle(color: Colors.white),
         ),
-        const SizedBox(height: 24),
-        EmailForm(onSubmit: (email) => _sendEmail(email), isLoading: isSending),
-        const SizedBox(height: 16),
-        TextButton(
-          onPressed: _returnToStart,
-          child: const Text(
-            'No Thanks, Return to Start',
-            style: TextStyle(fontSize: 16, color: Colors.black54),
-          ),
-        ),
-      ],
+      );
+    }
+
+    // For now, just show the first photo if we have any
+    return Image.file(
+      File(widget.capturedPhotos.first),
+      fit: BoxFit.contain,
     );
+
+    // TODO: Implement the proper layout based on the number of photos,
+    // similar to how you've done it in the CameraScreen
   }
 
-  Widget _buildThankYouMessage() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(Icons.check_circle, color: Colors.green, size: 64),
-        const SizedBox(height: 16),
-        const Text(
-          'Thank you! Your photo has been sent.',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 24),
-        ElevatedButton(
-          onPressed: _returnToStart,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(30),
-            ),
-          ),
-          child: const Text(
-            'Take More Photos',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _sendEmail(String email) async {
-    setState(() {
-      isSending = true;
-      errorMessage = null;
-    });
-
+  Future<void> _saveToGallery() async {
     try {
-      await ref
-          .read(emailServiceProvider)
-          .sendPhotoEmail(email: email, imageUrl: widget.imageUrl);
-
       setState(() {
-        isComplete = true;
+        _saving = true;
+        _saveMessage = null;
       });
+
+      // If we have captured photos, save them all
+      if (widget.capturedPhotos.isNotEmpty) {
+        for (final photoPath in widget.capturedPhotos) {
+          final result = await ImageGallerySaver.saveFile(photoPath);
+          print('Save result: $result');
+        }
+
+        setState(() {
+          _saveMessage = 'Photos saved to gallery successfully!';
+        });
+      } else if (widget.imageUrl.isNotEmpty) {
+        // If we have an image URL, download and save
+        // This is a placeholder - in a real app, you'd need to download the image first
+        setState(() {
+          _saveMessage = 'Error: No local image to save';
+        });
+      } else {
+        setState(() {
+          _saveMessage = 'Error: No image available to save';
+        });
+      }
     } catch (e) {
       setState(() {
-        errorMessage = 'Failed to send email. Please try again.';
+        _saveMessage = 'Error saving photos: ${e.toString()}';
       });
     } finally {
       setState(() {
-        isSending = false;
+        _saving = false;
       });
     }
   }
 
-  void _returnToStart() {
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (context) => const StartScreen()),
-      (route) => false,
-    );
+  Future<void> _sharePhoto() async {
+    try {
+      if (widget.capturedPhotos.isEmpty) {
+        setState(() {
+          _saveMessage = 'Error: No photos to share';
+        });
+        return;
+      }
+
+      // Create temporary directory for sharing
+      // final tempDir = await getTemporaryDirectory();
+      final shareFiles = <XFile>[];
+
+      // Add all captured photos to the share list
+      for (final photoPath in widget.capturedPhotos) {
+        shareFiles.add(XFile(photoPath));
+      }
+
+      // Share the photos
+      await Share.shareXFiles(
+        shareFiles,
+        text: 'Check out my photos from LoveLense Booth!',
+      );
+    } catch (e) {
+      setState(() {
+        _saveMessage = 'Error sharing photos: ${e.toString()}';
+      });
+    }
   }
 }
