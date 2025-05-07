@@ -1,16 +1,15 @@
 import 'dart:io';
+import 'dart:math';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'dart:math';
-import 'package:flutter/foundation.dart' show Uint8List, kIsWeb;
 import 'package:lovelense_booth/screens/share_screen.dart';
-import 'package:lovelense_booth/widgets/camera_preview.dart';
-import 'package:lovelense_booth/widgets/frame_selector.dart';
-import 'package:lovelense_booth/widgets/countdown_timer.dart';
 import 'package:lovelense_booth/services/camera_service.dart';
+import 'package:lovelense_booth/widgets/camera_preview.dart';
+import 'package:lovelense_booth/widgets/countdown_timer.dart';
+import 'package:lovelense_booth/widgets/frame_selector.dart';
 import 'package:lovelense_booth/widgets/frame_util.dart';
-import 'package:path_provider/path_provider.dart';
 
 class CameraScreen extends ConsumerStatefulWidget {
   final int initialFrameCount;
@@ -130,9 +129,21 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       // Delay to ensure UI is fully rendered
       await Future.delayed(const Duration(milliseconds: 300));
 
-      // Capture the frame
-      final frameBytes = await frameKey.captureAsPngBytes();
-      final frameImagePath = await _saveFrameImage(frameBytes);
+      // Generate the frame image with header and footer
+      final frameImagePath = await FrameUtil.generateFrameImage(
+        ref.read(capturedPhotosProvider),
+        selectedFrameCount,
+        frameKey,
+      );
+
+      // For web: store the bytes in our provider if needed
+      if (kIsWeb && frameImagePath.startsWith('memory://')) {
+        final frameBytes = await frameKey.captureAsPngBytes();
+        ref.read(frameImageBytesProvider.notifier).update((state) => {
+              ...state,
+              frameImagePath: frameBytes!,
+            });
+      }
 
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -202,29 +213,6 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         },
       ),
     );
-  }
-
-  Future<String> _saveFrameImage(Uint8List? bytes) async {
-    if (bytes == null) return '';
-
-    if (kIsWeb) {
-      // For web: store the bytes in our provider
-      final path =
-          'memory://frame_${DateTime.now().millisecondsSinceEpoch}.png';
-      ref.read(frameImageBytesProvider.notifier).update((state) => {
-            ...state,
-            path: bytes,
-          });
-      return path;
-    } else {
-      // For mobile: save to file
-      final directory = await getApplicationDocumentsDirectory();
-      final path =
-          '${directory.path}/frame_${DateTime.now().millisecondsSinceEpoch}.png';
-      final file = File(path);
-      await file.writeAsBytes(bytes);
-      return path;
-    }
   }
 
   @override
@@ -333,8 +321,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
                       // Right column - Frame preview - FIXED LAYOUT
                       Expanded(
-                        child: RepaintBoundary(
-                          key: frameKey,
+                        child: Center(
                           child: _buildFramePreview(capturedPhotos),
                         ),
                       ),
@@ -508,8 +495,10 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       }
     }
 
-    // Container with white background and consistent padding
-    return Center(
+    // Place the RepaintBoundary only around the container with the frame layout
+    // This ensures we only capture the frame with its border
+    return RepaintBoundary(
+      key: frameKey,
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
