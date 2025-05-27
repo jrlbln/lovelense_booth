@@ -7,17 +7,11 @@ import 'package:lovelense_booth/widgets/frame_util.dart';
 import 'dart:html' as html;
 
 class ShareScreen extends ConsumerStatefulWidget {
-  final String imageUrl;
-  final List<String> capturedPhotos;
   final String frameImagePath;
-  final int frameCount;
 
   const ShareScreen({
     Key? key,
-    required this.imageUrl,
-    this.capturedPhotos = const [],
     required this.frameImagePath,
-    required this.frameCount,
   }) : super(key: key);
 
   @override
@@ -26,12 +20,10 @@ class ShareScreen extends ConsumerStatefulWidget {
 
 class _ShareScreenState extends ConsumerState<ShareScreen> {
   bool _saving = false;
-  String? _saveMessage;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Remove AppBar, use gradient background
       body: Container(
         width: double.infinity,
         height: double.infinity,
@@ -47,40 +39,26 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Spacer(flex: 2),
-              // Centered framed photo
+
+              // Display the captured frame
               Center(
                 child: Container(
                   constraints: const BoxConstraints(
-                    maxWidth: 600, // Increased to accommodate header/footer
-                    maxHeight: 800, // Increased to accommodate header/footer
+                    maxWidth: 600,
+                    maxHeight: 800,
                   ),
-                  child: AspectRatio(
-                    aspectRatio: 3 / 4, // Adjusted for header and footer
-                    child: _buildFrameImage(),
-                  ),
+                  child: _buildFrameImage(),
                 ),
               ),
+
               const Spacer(flex: 1),
-              // Status message
-              if (_saveMessage != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12.0),
-                  child: Text(
-                    _saveMessage!,
-                    style: TextStyle(
-                      color: _saveMessage!.contains('Error')
-                          ? Colors.red
-                          : Colors.green,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-              // Buttons row
+
+              // Action buttons
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   ElevatedButton(
-                    onPressed: _navigateToStart,
+                    onPressed: _navigateBackToCamera,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: Colors.black,
@@ -100,7 +78,7 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
                   ),
                   const SizedBox(width: 40),
                   ElevatedButton(
-                    onPressed: _saving ? null : _saveToGallery,
+                    onPressed: _saving ? null : _downloadImage,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: Colors.black,
@@ -125,10 +103,11 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
                               strokeWidth: 2,
                             ),
                           )
-                        : const Text('Save'),
+                        : const Text('Download'),
                   ),
                 ],
               ),
+
               const Spacer(flex: 2),
             ],
           ),
@@ -138,13 +117,22 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
   }
 
   Widget _buildFrameImage() {
-    // Handle web or mobile frame display
     if (widget.frameImagePath.startsWith('memory://')) {
       // Web: get the bytes from the provider
       final frameBytes =
           ref.read(frameImageBytesProvider)[widget.frameImagePath];
       if (frameBytes != null) {
         return Container(
+          decoration: BoxDecoration(
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                spreadRadius: 2,
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: Image.memory(
@@ -190,66 +178,70 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
     );
   }
 
-  Future<void> _saveToGallery() async {
+  Future<void> _downloadImage() async {
     try {
       setState(() {
         _saving = true;
-        _saveMessage = null;
       });
 
-      // Save the frame image
-      if (widget.frameImagePath.isNotEmpty) {
+      if (kIsWeb) {
+        // Web: Download the image
         if (widget.frameImagePath.startsWith('memory://')) {
-          // For web: Implement download functionality
           final frameBytes =
               ref.read(frameImageBytesProvider)[widget.frameImagePath];
           if (frameBytes != null) {
-            // Create a blob from the bytes
-            final blob = html.Blob([frameBytes]);
-            final url = html.Url.createObjectUrlFromBlob(blob);
-
-            // Create an anchor element and trigger download
-            // ignore: unused_local_variable
-            final anchor = html.AnchorElement(href: url)
-              ..setAttribute('download',
-                  'lovelense_${DateTime.now().millisecondsSinceEpoch}.png')
-              ..click();
-
-            // Clean up
-            html.Url.revokeObjectUrl(url);
-
-            setState(() {
-              _saveMessage = 'Photo download started!';
-            });
-
-            // Navigate back to start screen after a delay
-            Future.delayed(const Duration(seconds: 2), _navigateToStart);
-          } else {
-            setState(() {
-              _saveMessage = 'Error: Could not find image data';
-            });
+            await _downloadForWeb(frameBytes);
           }
-        } else {
-          // For mobile, save to gallery
-          final result =
-              await ImageGallerySaver.saveFile(widget.frameImagePath);
-          print('Save result: $result');
-          setState(() {
-            _saveMessage = 'Photo saved to gallery successfully!';
-          });
-
-          // Navigate back to start screen after a delay
-          Future.delayed(const Duration(seconds: 2), _navigateToStart);
         }
       } else {
-        setState(() {
-          _saveMessage = 'Error: No frame image to save';
-        });
+        // Mobile: Save to gallery
+        await ImageGallerySaver.saveFile(widget.frameImagePath);
+      }
+
+      // Show success dialog for 2 seconds before navigating
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: Card(
+              color: Colors.white,
+              child: Padding(
+                padding: EdgeInsets.all(20.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.check_circle,
+                      color: Colors.green,
+                      size: 48,
+                    ),
+                    SizedBox(height: 16),
+                    Text(
+                      'Photo Downloaded Successfully',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+
+        // Wait for 2 seconds
+        await Future.delayed(const Duration(seconds: 2));
+
+        // Close the dialog and navigate back to start screen
+        if (mounted) {
+          Navigator.of(context).pop(); // Close the success dialog
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
       }
     } catch (e) {
-      setState(() {
-        _saveMessage = 'Error saving photo: ${e.toString()}';
-      });
+      print('Download error: $e');
     } finally {
       setState(() {
         _saving = false;
@@ -257,8 +249,34 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
     }
   }
 
-  void _navigateToStart() {
-    // Navigate back to the start screen
-    Navigator.of(context).popUntil((route) => route.isFirst);
+  Future<void> _downloadForWeb(List<int> bytes) async {
+    try {
+      // Create blob with correct MIME type
+      final blob = html.Blob([bytes], 'image/png');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+
+      // Create download link
+      final anchor = html.AnchorElement()
+        ..href = url
+        ..style.display = 'none'
+        ..download =
+            'lovelense_frame_${DateTime.now().millisecondsSinceEpoch}.png';
+
+      // Add to DOM, click, and remove
+      html.document.body?.children.add(anchor);
+      anchor.click();
+      html.document.body?.children.remove(anchor);
+
+      // Clean up the URL
+      html.Url.revokeObjectUrl(url);
+    } catch (e) {
+      print('Web download error: $e');
+      rethrow;
+    }
+  }
+
+  void _navigateBackToCamera() {
+    // Go back to the camera screen
+    Navigator.of(context).pop();
   }
 }

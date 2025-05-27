@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lovelense_booth/screens/share_screen.dart';
 import 'package:lovelense_booth/services/camera_service.dart';
+import 'package:lovelense_booth/services/idle_service.dart';
 import 'package:lovelense_booth/widgets/camera_preview.dart';
 import 'package:lovelense_booth/widgets/countdown_timer.dart';
 import 'package:lovelense_booth/widgets/frame_selector.dart';
 import 'package:lovelense_booth/widgets/frame_util.dart';
+import 'package:lovelense_booth/widgets/flash_effect.dart';
 import 'package:lovelense_booth/main.dart';
 
 class CameraScreen extends ConsumerStatefulWidget {
@@ -25,6 +27,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
   final GlobalKey frameKey = GlobalKey();
   late int selectedFrameCount;
   bool isCapturing = false;
+  bool isProcessing = false; // New state for final processing
   int currentCaptureIndex = 0;
   List<String> capturedPhotoPaths = []; // Store paths or URLs
   List<int> samplePhotoIndices = []; // Store randomly selected photo indices
@@ -39,6 +42,16 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _initializeCamera();
+        // Start idle monitoring
+        final idleService = ref.read(idleServiceProvider);
+        idleService.startMonitoring();
+        idleService.addOnIdleCallback(() {
+          if (mounted) {
+            // Ensure camera is disposed before navigating
+            ref.read(cameraServiceProvider).disposeCamera();
+            Navigator.of(context).popUntil((route) => route.isFirst);
+          }
+        });
       }
     });
   }
@@ -52,6 +65,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
 
   @override
   void dispose() {
+    // Stop idle monitoring
+    ref.read(idleServiceProvider).stopMonitoring();
     // Only unsubscribe from route changes
     routeObserver.unsubscribe(this);
     super.dispose();
@@ -149,7 +164,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
     ref.read(cameraServiceProvider).clearCapturedPhotos();
 
     setState(() {
-      isCapturing = true;
+      isCapturing = true; // This disables all buttons
       currentCaptureIndex = 0;
       capturedPhotoPaths = [];
     });
@@ -159,127 +174,177 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
 
   Future<void> _captureNextPhoto() async {
     if (currentCaptureIndex >= selectedFrameCount) {
-      // All photos captured, capture the entire frame before proceeding
+      // All photos captured, now start processing
       setState(() {
         isCapturing = false;
+        isProcessing = true; // Show processing state
       });
 
-      // Delay to ensure UI is fully rendered
-      await Future.delayed(const Duration(milliseconds: 300));
-
-      // Generate the frame image with header and footer
-      final frameImagePath = await FrameUtil.generateFrameImage(
-        ref.read(capturedPhotosProvider),
-        selectedFrameCount,
-        frameKey,
+      // Show processing dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Processing your photos...',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
       );
 
-      // For web: store the bytes in our provider if needed
-      if (kIsWeb && frameImagePath.startsWith('memory://')) {
-        final frameBytes = await frameKey.captureAsPngBytes();
-        ref.read(frameImageBytesProvider.notifier).update((state) => {
-              ...state,
-              frameImagePath: frameBytes!,
-            });
-      }
-
-      // Close the loading dialog
-      if (context.mounted) {
-        Navigator.of(context).pop(); // Close loading dialog
-      }
-
-      if (context.mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => ShareScreen(
-              imageUrl: '',
-              capturedPhotos: capturedPhotoPaths,
-              frameImagePath: frameImagePath,
-              frameCount: selectedFrameCount,
-            ),
-          ),
+      try {
+        // Generate the frame image with header and footer
+        final frameImagePath = await FrameUtil.generateFrameImage(
+          ref.read(capturedPhotosProvider),
+          selectedFrameCount,
+          frameKey,
         );
+
+        // For web: store the bytes in our provider if needed
+        if (kIsWeb && frameImagePath.startsWith('memory://')) {
+          final frameBytes = await frameKey.captureAsPngBytes();
+          ref.read(frameImageBytesProvider.notifier).update((state) => {
+                ...state,
+                frameImagePath: frameBytes!,
+              });
+        }
+
+        // Close the processing dialog
+        if (context.mounted) {
+          Navigator.of(context).pop(); // Close processing dialog
+        }
+
+        // Navigate to share screen
+        if (context.mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => ShareScreen(
+                frameImagePath: frameImagePath,
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        // Close processing dialog
+        if (context.mounted) {
+          Navigator.of(context).pop();
+        }
+
+        // Show error
+        if (context.mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Processing Error'),
+              content: Text('Failed to process photos: ${e.toString()}'),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    setState(() {
+                      isProcessing = false;
+                    });
+                  },
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            isProcessing = false;
+          });
+        }
       }
       return;
     }
 
-    // Show countdown and capture
+    // Show countdown for this photo
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => CountdownTimer(
         onFinished: () async {
-          try {
-            // Show loading dialog immediately after countdown
-            if (context.mounted) {
-              Navigator.of(context).pop(); // Close countdown dialog
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (context) => const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        'Processing your photos...',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
+          // Close countdown dialog
+          if (context.mounted) {
+            Navigator.of(context).pop();
+          }
 
-            // Capture photo
-            final photoPathOrUrl =
-                await ref.read(cameraServiceProvider).capturePhoto();
-
-            setState(() {
-              capturedPhotoPaths.add(photoPathOrUrl);
-              currentCaptureIndex++;
-            });
-
-            // Small delay before next capture
-            Future.delayed(const Duration(milliseconds: 500), () {
-              _captureNextPhoto();
-            });
-          } catch (e) {
-            if (context.mounted) {
-              Navigator.of(context).pop(); // Close loading dialog
-            }
-
-            // Show error dialog
+          // Show flash effect
+          if (context.mounted) {
             showDialog(
               context: context,
-              builder: (context) => AlertDialog(
-                title: const Text('Capture Error'),
-                content: Text('Failed to capture photo: ${e.toString()}'),
-                actions: [
-                  TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      setState(() {
-                        isCapturing = false;
-                      });
-                    },
-                    child: const Text('CANCEL'),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      _captureNextPhoto(); // Try next photo
-                    },
-                    child: const Text('SKIP & CONTINUE'),
-                  ),
-                ],
+              barrierDismissible: false,
+              barrierColor: Colors
+                  .transparent, // Make barrier transparent so flash shows over everything
+              builder: (context) => FlashEffect(
+                onFlashComplete: () async {
+                  // Close flash dialog
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+
+                  try {
+                    // Capture photo after flash
+                    final photoPathOrUrl =
+                        await ref.read(cameraServiceProvider).capturePhoto();
+
+                    setState(() {
+                      capturedPhotoPaths.add(photoPathOrUrl);
+                      currentCaptureIndex++;
+                    });
+
+                    // Small delay before next capture
+                    Future.delayed(const Duration(milliseconds: 500), () {
+                      _captureNextPhoto();
+                    });
+                  } catch (e) {
+                    // Show error dialog for individual photo capture
+                    if (context.mounted) {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Capture Error'),
+                          content:
+                              Text('Failed to capture photo: ${e.toString()}'),
+                          actions: [
+                            TextButton(
+                              onPressed: () {
+                                Navigator.of(context).pop();
+                                setState(() {
+                                  isCapturing = false;
+                                });
+                              },
+                              child: const Text('CANCEL'),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                Navigator.of(context).pop();
+                                _captureNextPhoto(); // Try next photo
+                              },
+                              child: const Text('SKIP & CONTINUE'),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                  }
+                },
               ),
             );
           }
@@ -295,124 +360,128 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
     final capturedPhotos = ref.watch(capturedPhotosProvider);
 
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF87CEEB), Color(0xFF61ECD9)],
+      body: IdleDetector(
+        idleService: ref.read(idleServiceProvider),
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF87CEEB), Color(0xFF61ECD9)],
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                // Main content in two columns
-                Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment
-                        .center, // Changed from .start to .center
-                    children: [
-                      // Left column - Camera preview
-                      Expanded(
-                        child: Center(
-                          // Wrap the entire left column in Center
-                          child: Column(
-                            mainAxisAlignment:
-                                MainAxisAlignment.center, // Center vertically
-                            mainAxisSize:
-                                MainAxisSize.min, // Take only needed space
-                            children: [
-                              // Camera preview (square)
-                              SizedBox(
-                                width: 500, // Fixed width
-                                height: 500, // Fixed height (square)
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade300,
-                                    borderRadius: BorderRadius.circular(8),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  // Main content in two columns
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Left column - Camera preview
+                        Expanded(
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Camera preview (square)
+                                SizedBox(
+                                  width: 500, // Fixed width
+                                  height: 500, // Fixed height (square)
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade300,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const CameraPreviewWidget(),
                                   ),
-                                  child: const CameraPreviewWidget(),
                                 ),
-                              ),
 
-                              const SizedBox(height: 16),
+                                const SizedBox(height: 16),
 
-                              // Frame selector text
-                              const Text(
-                                'Select a Frame',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  color: Colors.white,
-                                ),
-                              ),
-
-                              const SizedBox(height: 8),
-
-                              // Frame selector buttons
-                              FrameSelector(
-                                selectedFrameCount: selectedFrameCount,
-                                onFrameSelected: (frameCount) {
-                                  setState(() {
-                                    selectedFrameCount = frameCount;
-                                    _randomizeSamplePhotos(); // Randomize photos when frame count changes
-                                  });
-                                },
-                                disabled: isCapturing,
-                              ),
-
-                              const SizedBox(height: 32),
-
-                              // Start button
-                              ElevatedButton(
-                                onPressed: isCapturing ||
-                                        cameraState != CameraState.initialized
-                                    ? null
-                                    : startCapturing,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 40,
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(30),
-                                  ),
-                                  // Disabled style
-                                  disabledBackgroundColor: Colors.grey.shade300,
-                                ),
-                                child: const Text(
-                                  'START',
+                                // Frame selector text
+                                const Text(
+                                  'Select a Frame',
                                   style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black87,
+                                    fontSize: 18,
+                                    color: Colors.white,
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
 
-                      // Right column - Frame preview with FIXED DIMENSIONS
-                      SizedBox(
-                        width: 600,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Padding(
-                            padding: const EdgeInsets.only(
-                                left:
-                                    0), // Change this value to move it right/left
-                            child: _buildFramePreview(capturedPhotos),
+                                const SizedBox(height: 8),
+
+                                // Frame selector buttons - DISABLED when capturing or processing
+                                FrameSelector(
+                                  selectedFrameCount: selectedFrameCount,
+                                  onFrameSelected: (frameCount) {
+                                    setState(() {
+                                      selectedFrameCount = frameCount;
+                                      _randomizeSamplePhotos();
+                                    });
+                                  },
+                                  disabled: isCapturing ||
+                                      isProcessing, // Updated condition
+                                ),
+
+                                const SizedBox(height: 32),
+
+                                // Start button - DISABLED when capturing or processing
+                                ElevatedButton(
+                                  onPressed: (isCapturing ||
+                                          isProcessing ||
+                                          cameraState !=
+                                              CameraState.initialized)
+                                      ? null
+                                      : startCapturing,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 40,
+                                      vertical: 12,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(30),
+                                    ),
+                                    disabledBackgroundColor:
+                                        Colors.grey.shade300,
+                                  ),
+                                  child: Text(
+                                    isCapturing
+                                        ? 'CAPTURING...'
+                                        : isProcessing
+                                            ? 'PROCESSING...'
+                                            : 'START',
+                                    style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+
+                        // Right column - Frame preview with FIXED DIMENSIONS
+                        SizedBox(
+                          width: 600,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 0),
+                              child: _buildFramePreview(capturedPhotos),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
