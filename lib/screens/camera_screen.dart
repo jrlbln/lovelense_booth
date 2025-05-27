@@ -311,56 +311,61 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
                 // Main content in two columns
                 Expanded(
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment
+                        .center, // Changed from .start to .center
                     children: [
                       // Left column - Camera preview
                       Expanded(
-                        child: Column(
-                          children: [
-                            // Camera preview (square)
-                            SizedBox(
-                              width: 600, // Fixed width
-                              height: 600, // Fixed height (square)
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade300,
-                                  borderRadius: BorderRadius.circular(8),
+                        child: Center(
+                          // Wrap the entire left column in Center
+                          child: Column(
+                            mainAxisAlignment:
+                                MainAxisAlignment.center, // Center vertically
+                            mainAxisSize:
+                                MainAxisSize.min, // Take only needed space
+                            children: [
+                              // Camera preview (square)
+                              SizedBox(
+                                width: 500, // Fixed width
+                                height: 500, // Fixed height (square)
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade300,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const CameraPreviewWidget(),
                                 ),
-                                child: const CameraPreviewWidget(),
                               ),
-                            ),
 
-                            const SizedBox(height: 16),
+                              const SizedBox(height: 16),
 
-                            // Frame selector text
-                            const Text(
-                              'Select a Frame',
-                              style: TextStyle(
-                                fontSize: 18,
-                                color: Colors.white,
+                              // Frame selector text
+                              const Text(
+                                'Select a Frame',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  color: Colors.white,
+                                ),
                               ),
-                            ),
 
-                            const SizedBox(height: 8),
+                              const SizedBox(height: 8),
 
-                            // Frame selector buttons
-                            FrameSelector(
-                              selectedFrameCount: selectedFrameCount,
-                              onFrameSelected: (frameCount) {
-                                setState(() {
-                                  selectedFrameCount = frameCount;
-                                  _randomizeSamplePhotos(); // Randomize photos when frame count changes
-                                });
-                              },
-                              disabled: isCapturing,
-                            ),
+                              // Frame selector buttons
+                              FrameSelector(
+                                selectedFrameCount: selectedFrameCount,
+                                onFrameSelected: (frameCount) {
+                                  setState(() {
+                                    selectedFrameCount = frameCount;
+                                    _randomizeSamplePhotos(); // Randomize photos when frame count changes
+                                  });
+                                },
+                                disabled: isCapturing,
+                              ),
 
-                            const SizedBox(height: 32),
+                              const SizedBox(height: 32),
 
-                            // Start button
-                            Align(
-                              alignment: Alignment.center,
-                              child: ElevatedButton(
+                              // Start button
+                              ElevatedButton(
                                 onPressed: isCapturing ||
                                         cameraState != CameraState.initialized
                                     ? null
@@ -386,17 +391,22 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
 
-                      const SizedBox(width: 16),
-
-                      // Right column - Frame preview - FIXED LAYOUT
-                      Expanded(
-                        child: Center(
-                          child: _buildFramePreview(capturedPhotos),
+                      // Right column - Frame preview with FIXED DIMENSIONS
+                      SizedBox(
+                        width: 600,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Padding(
+                            padding: const EdgeInsets.only(
+                                left:
+                                    0), // Change this value to move it right/left
+                            child: _buildFramePreview(capturedPhotos),
+                          ),
                         ),
                       ),
                     ],
@@ -411,10 +421,39 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
   }
 
   Widget _buildFramePreview(List<CapturedPhoto> allCapturedPhotos) {
-    // Fixed dimensions for each frame
-    const double frameSize = 250.0; // Individual photo frame size
-    const double framePadding = 12.0; // Padding between frames
-    const double containerPadding = 16.0; // Padding inside the white container
+    // Calculate frame dimensions based on layout
+    double frameWidth;
+    double frameHeight;
+
+    switch (selectedFrameCount) {
+      case 3:
+        frameWidth = 250.0; // Single column width
+        frameHeight = 250.0 * 3 + 12.0 * 2; // 3 photos + 2 gaps
+        break;
+      case 4:
+        frameWidth = 250.0 * 2 + 12.0; // 2 columns + 1 gap
+        frameHeight = 250.0 * 2 + 12.0; // 2 rows + 1 gap
+        break;
+      case 6:
+        frameWidth = 250.0 * 2 + 12.0; // 2 columns + 1 gap
+        frameHeight = 250.0 * 3 + 12.0 * 2; // 3 rows + 2 gaps
+        break;
+      default:
+        frameWidth = 250.0;
+        frameHeight = 250.0;
+    }
+
+    // Fixed dimensions for each individual photo frame
+    const double photoSize = 250.0; // Individual photo frame size
+    const double framePadding = 8.0; // Padding between frames
+    const double containerPadding = 12.0; // Padding inside the white container
+    const double headerHeight = 60.0; // Height for header section
+    const double footerHeight = 30.0; // Height for footer section
+
+    // Total frame dimensions including header and footer
+    final totalFrameWidth = frameWidth + (containerPadding * 2);
+    final totalFrameHeight =
+        frameHeight + (containerPadding * 2) + headerHeight + footerHeight;
 
     // Helper method to create a square frame preview box with sample image
     Widget buildFrameBox(int index) {
@@ -425,8 +464,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
         if (kIsWeb && capturedPhoto.webUrl != null) {
           // For web: Use webUrl to display the image
           return Container(
-            width: frameSize,
-            height: frameSize,
+            width: photoSize,
+            height: photoSize,
             decoration: BoxDecoration(
               color: Colors.grey.shade300,
               borderRadius: BorderRadius.circular(4),
@@ -442,8 +481,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
         } else if (!kIsWeb) {
           // For mobile: Use file path
           return Container(
-            width: frameSize,
-            height: frameSize,
+            width: photoSize,
+            height: photoSize,
             decoration: BoxDecoration(
               color: Colors.grey.shade300,
               borderRadius: BorderRadius.circular(4),
@@ -465,8 +504,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
           : 1; // Default to sample-1 if somehow we don't have an index
 
       return Container(
-        width: frameSize,
-        height: frameSize,
+        width: photoSize,
+        height: photoSize,
         decoration: BoxDecoration(
           color: Colors.grey.shade300,
           borderRadius: BorderRadius.circular(4),
@@ -569,17 +608,115 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
       }
     }
 
-    // Place the RepaintBoundary only around the container with the frame layout
-    // This ensures we only capture the frame with its border
+    // Build header section
+    Widget buildHeader() {
+      return Container(
+        height: headerHeight,
+        width: totalFrameWidth,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(12),
+            topRight: Radius.circular(12),
+          ),
+        ),
+        child: const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Jimuel & Jaybei',
+              style: TextStyle(
+                color: Colors.black,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'AlexBrush',
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              '05/31/2025',
+              style: TextStyle(
+                color: Colors.black,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Build footer section
+    Widget buildFooter() {
+      return Container(
+        height: footerHeight,
+        width: totalFrameWidth,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            bottomLeft: Radius.circular(12),
+            bottomRight: Radius.circular(12),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              'made with LoveLense',
+              style: TextStyle(
+                color: Colors.black,
+                fontSize: 8,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(width: 8),
+            // LoveLense icon
+            Image.asset(
+              'assets/images/LoveLenseIcon.png',
+              width: 20,
+              height: 20,
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Place the RepaintBoundary around the complete frame with FIXED DIMENSIONS
     return RepaintBoundary(
       key: frameKey,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: totalFrameWidth,
+        height: totalFrameHeight,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              buildHeader(),
+
+              // Photo grid content
+              Container(
+                width: totalFrameWidth,
+                padding: const EdgeInsets.all(containerPadding),
+                child: buildFrameLayout(),
+              ),
+
+              // Footer
+              buildFooter(),
+            ],
+          ),
         ),
-        padding: const EdgeInsets.all(containerPadding),
-        child: buildFrameLayout(),
       ),
     );
   }
