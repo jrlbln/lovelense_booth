@@ -10,6 +10,7 @@ import 'package:lovelense_booth/widgets/camera_preview.dart';
 import 'package:lovelense_booth/widgets/countdown_timer.dart';
 import 'package:lovelense_booth/widgets/frame_selector.dart';
 import 'package:lovelense_booth/widgets/frame_util.dart';
+import 'package:lovelense_booth/main.dart';
 
 class CameraScreen extends ConsumerStatefulWidget {
   final int initialFrameCount;
@@ -20,7 +21,7 @@ class CameraScreen extends ConsumerStatefulWidget {
   ConsumerState<CameraScreen> createState() => _CameraScreenState();
 }
 
-class _CameraScreenState extends ConsumerState<CameraScreen> {
+class _CameraScreenState extends ConsumerState<CameraScreen> with RouteAware {
   final GlobalKey frameKey = GlobalKey();
   late int selectedFrameCount;
   bool isCapturing = false;
@@ -36,8 +37,52 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
     // Initialize the camera after widget is built
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeCamera();
+      if (mounted) {
+        _initializeCamera();
+      }
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Subscribe to route changes
+    routeObserver.subscribe(this, ModalRoute.of(context) as PageRoute);
+  }
+
+  @override
+  void dispose() {
+    // Only unsubscribe from route changes
+    routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPushNext() {
+    // Called when navigating to a new route
+    if (mounted) {
+      final cameraService = ref.read(cameraServiceProvider);
+      cameraService.disposeCamera();
+      cameraService.clearCapturedPhotos();
+    }
+  }
+
+  @override
+  void didPopNext() {
+    // Called when returning to this route
+    if (mounted) {
+      _initializeCamera();
+    }
+  }
+
+  @override
+  void didPop() {
+    // Called when this route is popped
+    if (mounted) {
+      final cameraService = ref.read(cameraServiceProvider);
+      cameraService.disposeCamera();
+      cameraService.clearCapturedPhotos();
+    }
   }
 
   Future<void> _initializeCamera() async {
@@ -47,13 +92,6 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       // Error is already handled in CameraService
       print('Camera initialization error caught in screen: $e');
     }
-  }
-
-  @override
-  void dispose() {
-    // Dispose camera resources
-    ref.read(cameraServiceProvider).disposeCamera();
-    super.dispose();
   }
 
   // Randomize sample photos whenever frame count changes
@@ -145,16 +183,23 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
             });
       }
 
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => ShareScreen(
-            imageUrl: '',
-            capturedPhotos: capturedPhotoPaths,
-            frameImagePath: frameImagePath,
-            frameCount: selectedFrameCount,
+      // Close the loading dialog
+      if (context.mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+      }
+
+      if (context.mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => ShareScreen(
+              imageUrl: '',
+              capturedPhotos: capturedPhotoPaths,
+              frameImagePath: frameImagePath,
+              frameCount: selectedFrameCount,
+            ),
           ),
-        ),
-      );
+        );
+      }
       return;
     }
 
@@ -165,6 +210,34 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       builder: (context) => CountdownTimer(
         onFinished: () async {
           try {
+            // Show loading dialog immediately after countdown
+            if (context.mounted) {
+              Navigator.of(context).pop(); // Close countdown dialog
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) => const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        'Processing your photos...',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
             // Capture photo
             final photoPathOrUrl =
                 await ref.read(cameraServiceProvider).capturePhoto();
@@ -174,14 +247,14 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
               currentCaptureIndex++;
             });
 
-            Navigator.of(context).pop(); // Close countdown dialog
-
             // Small delay before next capture
             Future.delayed(const Duration(milliseconds: 500), () {
               _captureNextPhoto();
             });
           } catch (e) {
-            Navigator.of(context).pop(); // Close countdown dialog
+            if (context.mounted) {
+              Navigator.of(context).pop(); // Close loading dialog
+            }
 
             // Show error dialog
             showDialog(
@@ -279,6 +352,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                                   _randomizeSamplePhotos(); // Randomize photos when frame count changes
                                 });
                               },
+                              disabled: isCapturing,
                             ),
 
                             const SizedBox(height: 32),

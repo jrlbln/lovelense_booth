@@ -1,17 +1,31 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lovelense_booth/screens/camera_screen.dart';
 import 'package:animated_background/animated_background.dart';
+import 'package:lovelense_booth/services/camera_service.dart';
 
-class StartScreen extends StatefulWidget {
+class StartScreen extends ConsumerStatefulWidget {
   const StartScreen({super.key});
 
   @override
-  State<StartScreen> createState() => _StartScreenState();
+  ConsumerState<StartScreen> createState() => _StartScreenState();
 }
 
-class _StartScreenState extends State<StartScreen>
+class _StartScreenState extends ConsumerState<StartScreen>
     with TickerProviderStateMixin {
   // TickerProviderStateMixin is needed for AnimatedBackground
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    // Ensure camera is disposed when leaving the start screen
+    ref.read(cameraServiceProvider).disposeCamera();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,6 +102,8 @@ class _StartScreenState extends State<StartScreen>
                   Center(
                     child: ElevatedButton(
                       onPressed: () {
+                        // Ensure camera is disposed before navigating
+                        ref.read(cameraServiceProvider).disposeCamera();
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (context) => const CameraScreen(

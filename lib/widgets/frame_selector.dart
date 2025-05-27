@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 class FrameSelector extends StatelessWidget {
   final int selectedFrameCount;
   final Function(int) onFrameSelected;
+  final bool disabled;
 
   const FrameSelector({
     super.key,
     required this.selectedFrameCount,
     required this.onFrameSelected,
+    this.disabled = false,
   });
 
   @override
@@ -32,7 +34,7 @@ class FrameSelector extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       elevation: isSelected ? 4 : 2,
       child: InkWell(
-        onTap: () => onFrameSelected(frameCount),
+        onTap: disabled ? null : () => onFrameSelected(frameCount),
         borderRadius: BorderRadius.circular(8),
         child: Container(
           width: 80,

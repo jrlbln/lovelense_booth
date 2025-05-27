@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:lovelense_booth/services/camera_service.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
 class FrameUtil {
   /// Creates a single image from multiple captured photos based on the layout
@@ -91,27 +92,51 @@ class FrameUtil {
       headerPaint,
     );
 
-    // Draw header text
-    const headerText = 'LoveLense Photo Booth';
-    const headerTextStyle = TextStyle(
+    // Draw header text (names)
+    const headerNames = 'Jimuel & Jaybei';
+    const headerNamesStyle = TextStyle(
       color: Colors.white,
       fontSize: 32,
       fontWeight: FontWeight.bold,
     );
-    const headerTextSpan = TextSpan(
-      text: headerText,
-      style: headerTextStyle,
+    const headerNamesSpan = TextSpan(
+      text: headerNames,
+      style: headerNamesStyle,
     );
-    final headerTextPainter = TextPainter(
-      text: headerTextSpan,
+    final headerNamesPainter = TextPainter(
+      text: headerNamesSpan,
       textDirection: TextDirection.ltr,
     );
-    headerTextPainter.layout();
-    headerTextPainter.paint(
+    headerNamesPainter.layout();
+    headerNamesPainter.paint(
       canvas,
       Offset(
-        (totalWidth - headerTextPainter.width) / 2,
-        (headerHeight - headerTextPainter.height) / 2,
+        (totalWidth - headerNamesPainter.width) / 2,
+        (headerHeight / 2 - headerNamesPainter.height),
+      ),
+    );
+
+    // Draw header date below names
+    const headerDate = '05.31.2025';
+    const headerDateStyle = TextStyle(
+      color: Colors.white,
+      fontSize: 20,
+      fontWeight: FontWeight.w500,
+    );
+    const headerDateSpan = TextSpan(
+      text: headerDate,
+      style: headerDateStyle,
+    );
+    final headerDatePainter = TextPainter(
+      text: headerDateSpan,
+      textDirection: TextDirection.ltr,
+    );
+    headerDatePainter.layout();
+    headerDatePainter.paint(
+      canvas,
+      Offset(
+        (totalWidth - headerDatePainter.width) / 2,
+        (headerHeight / 2),
       ),
     );
 
@@ -131,8 +156,8 @@ class FrameUtil {
       footerPaint,
     );
 
-    // Draw footer text
-    const footerText = 'Share your memories!';
+    // Draw footer text and icon
+    const footerText = 'made with LoveLense';
     const footerTextStyle = TextStyle(
       color: Colors.white,
       fontSize: 24,
@@ -147,14 +172,38 @@ class FrameUtil {
       textDirection: TextDirection.ltr,
     );
     footerTextPainter.layout();
+
+    // Load the LoveLense icon asset as an image
+    final ByteData iconData =
+        await rootBundle.load('assets/images/LoveLenseIcon.png');
+    final ui.Codec iconCodec =
+        await ui.instantiateImageCodec(iconData.buffer.asUint8List());
+    final ui.FrameInfo iconFrame = await iconCodec.getNextFrame();
+    final ui.Image iconImage = iconFrame.image;
+    const double iconSize = 36.0;
+
+    // Calculate total width for text + icon
+    final double totalFooterContentWidth =
+        footerTextPainter.width + iconSize + 12.0;
+    final double footerContentStartX =
+        (totalWidth - totalFooterContentWidth) / 2;
+    final double footerContentY =
+        totalHeight - footerHeight / 2 - footerTextPainter.height / 2;
+
+    // Draw text
     footerTextPainter.paint(
       canvas,
-      Offset(
-        (totalWidth - footerTextPainter.width) / 2,
-        totalHeight -
-            footerHeight +
-            (footerHeight - footerTextPainter.height) / 2,
-      ),
+      Offset(footerContentStartX, footerContentY),
+    );
+    // Draw icon to the right of the text
+    final double iconY = totalHeight - footerHeight / 2 - iconSize / 2;
+    canvas.drawImageRect(
+      iconImage,
+      Rect.fromLTWH(
+          0, 0, iconImage.width.toDouble(), iconImage.height.toDouble()),
+      Rect.fromLTWH(footerContentStartX + footerTextPainter.width + 12.0, iconY,
+          iconSize, iconSize),
+      Paint(),
     );
 
     // Convert to image
